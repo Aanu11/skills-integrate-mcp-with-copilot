@@ -5,10 +5,13 @@ A super simple FastAPI application that allows students to view and sign up
 for extracurricular activities at Mergington High School.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
+import json
 import os
+import secrets
 from pathlib import Path
 
 app = FastAPI(title="Mergington High School API",
@@ -18,6 +21,52 @@ app = FastAPI(title="Mergington High School API",
 current_dir = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=os.path.join(Path(__file__).parent,
           "static")), name="static")
+
+# Load teacher credentials from JSON file
+
+def load_teacher_credentials():
+    teachers_file = Path(__file__).parent / "teachers.json"
+    if not teachers_file.exists():
+        return []
+    with teachers_file.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+teacher_credentials = load_teacher_credentials()
+teacher_sessions = {}
+
+
+class LoginPayload(BaseModel):
+    username: str
+    password: str
+
+
+def get_authorization_token(authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Teacher authorization required")
+
+    token = authorization.split(" ", 1)[1]
+    if token not in teacher_sessions:
+        raise HTTPException(status_code=401, detail="Invalid or expired teacher token")
+
+    return token
+
+
+@app.post("/auth/login")
+def login(payload: LoginPayload):
+    for teacher in teacher_credentials:
+        if teacher["username"] == payload.username and teacher["password"] == payload.password:
+            token = secrets.token_urlsafe(24)
+            teacher_sessions[token] = payload.username
+            return {"token": token, "username": payload.username}
+
+    raise HTTPException(status_code=401, detail="Invalid username or password")
+
+
+@app.post("/auth/logout")
+def logout(token: str = Depends(get_authorization_token)):
+    teacher_sessions.pop(token, None)
+    return {"message": "Logged out"}
+
 
 # In-memory activity database
 activities = {
@@ -89,7 +138,7 @@ def get_activities():
 
 
 @app.post("/activities/{activity_name}/signup")
-def signup_for_activity(activity_name: str, email: str):
+def signup_for_activity(activity_name: str, email: str, token: str = Depends(get_authorization_token)):
     """Sign up a student for an activity"""
     # Validate activity exists
     if activity_name not in activities:
@@ -111,7 +160,7 @@ def signup_for_activity(activity_name: str, email: str):
 
 
 @app.delete("/activities/{activity_name}/unregister")
-def unregister_from_activity(activity_name: str, email: str):
+def unregister_from_activity(activity_name: str, email: str, token: str = Depends(get_authorization_token)):
     """Unregister a student from an activity"""
     # Validate activity exists
     if activity_name not in activities:
