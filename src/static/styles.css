@@ -164,6 +164,22 @@ button:hover {
   background-color: #3949ab;
 }
 
+button:disabled,
+button.disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+.auth-note {
+  margin-bottom: 15px;
+  font-size: 14px;
+  color: #555;
+}
+
+.hidden {
+  display: none;
+}
+
 .message {
   margin-top: 20px;
   padding: 10px;
